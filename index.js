@@ -1,8 +1,9 @@
 import dotenv from "dotenv";
-// import ethers from "ethers";
+import { ethers, JsonRpcProvider } from "ethers";
 import express from "express";
 import { MongoClient } from "mongodb";
 import { create } from "@web3-storage/w3up-client";
+import { createClient } from "redis";
 
 dotenv.config();
 // USDC ABI (same as before)
@@ -64,108 +65,110 @@ export const getRPCURL = (chainId) => {
   }
 };
 
+// 0x35E38E69Ae9b11b675f2062b3D4E9FFB5ef756AC -- hardcoded
 class PaymentMonitor {
   constructor() {
-    this.provider = new ethers.providers.JsonRpcProvider(
-      getRPCURL("base-sepolia")
-    );
+    this.setupProvider();
+    this.chatConfigs = new Map();
+  }
+
+  async initialize() {
+    // const value = await client.get("-4555870136");
+    // console.log({ value });
+
+    const chatIds = await client.get("all-chat-ids");
+    const chatIdsArray = JSON.parse(chatIds);
+    console.log({ chatIdsArray });
+
+    for (const chatId of chatIdsArray) {
+      const value = await client.get(chatId);
+      const config = JSON.parse(value);
+      console.log({ config });
+      const configData = {
+        walletAddress: config.walletAddress,
+        memberCount: config.requestData.numberOfGuests,
+        paymentsReceived: 0,
+        amountPerWallet: config.requestData.amountPerGuest,
+      };
+      this.chatConfigs.set(chatId, configData);
+    }
+  }
+
+  setupProvider() {
+    const providerUrl = "wss://base-sepolia.publicnode.com"; // Base Sepolia WebSocket URL
+    this.provider = new ethers.WebSocketProvider(providerUrl, undefined, {
+      reconnect: {
+        auto: true,
+        retries: 5,
+        delay: 5000,
+      },
+    });
+
     this.usdcContract = new ethers.Contract(
-      "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", //base contract
+      "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
       USDC_ABI,
       this.provider
     );
-    this.chatConfigs = new Map(); // chatId -> {walletAddress, memberCount, amountPerWallet, paymentsReceived}
-    this.chatConfigs.set("-4555870136", {
-      walletAddress: "0xD7D7474BD9099FA7B44C75E95FF635092D4F0d9c", //ellie hackathon wallet
-      memberCount: 1,
-      amountPerWallet: 1,
-      paymentsReceived: 0,
-    });
-
-    // this.mongoClient = new MongoClient(process.env.MONGODB_URI);
   }
 
-  //   async connect() {
-  //     await this.mongoClient.connect();
-  //     const db = this.mongoClient.db("telegram-payments");
-  //     this.chatsCollection = db.collection("chat-configs");
-
-  //     // Load existing configurations
-  //     const configs = await this.chatsCollection.find({}).toArray();
-  //     configs.forEach((config) => {
-  //       this.chatConfigs.set(config.chatId, {
-  //         walletAddress: config.walletAddress,
-  //         memberCount: config.memberCount,
-  //         amountPerWallet: config.amountPerWallet,
-  //         paymentsReceived: 0,
-  //       });
-  //     });
-  //   }
-
-  //   async addOrUpdateChat(chatId, walletAddress, memberCount, amountPerWallet) {
-  //     const config = {
-  //       chatId,
-  //       walletAddress,
-  //       memberCount,
-  //       amountPerWallet,
-  //       updatedAt: new Date(),
-  //     };
-
-  //     await this.chatsCollection.updateOne(
-  //       { chatId },
-  //       { $set: config },
-  //       { upsert: true }
-  //     );
-
-  //     this.chatConfigs.set(chatId, {
-  //       ...config,
-  //       paymentsReceived: 0,
-  //     });
-  //   }
-
-  //   async removeChat(chatId) {
-  //     await this.chatsCollection.deleteOne({ chatId });
-  //     this.chatConfigs.delete(chatId);
-  //   }
-
   start() {
-    this.usdcContract.on("Transfer", async (from, to, value, event) => {
-      for (const [chatId, config] of this.chatConfigs.entries()) {
-        if (to.toLowerCase() === config.walletAddress.toLowerCase()) {
-          const expectedAmount = ethers.utils.parseUnits(
-            config.amountPerWallet.toString(),
-            6
-          );
+    const setupListener = () => {
+      this.usdcContract.on("Transfer", async (from, to, value, event) => {
+        console.log({ from, to, value });
+        for (const [chatId, config] of this.chatConfigs.entries()) {
+          console.log({ chatId, config });
+          if (to.toLowerCase() === config.walletAddress.toLowerCase()) {
+            console.log("wallet match");
 
-          if (value.eq(expectedAmount)) {
-            config.paymentsReceived++;
+            if (value === 100000n) {
+              config.paymentsReceived++;
+              console.log({ config });
 
-            if (config.paymentsReceived === config.memberCount) {
-              await this.triggerWebhook(chatId);
-              config.paymentsReceived = 0;
+              if (config.paymentsReceived === config.memberCount) {
+                await this.triggerWebhook(chatId);
+                config.paymentsReceived = 0;
+              }
             }
           }
         }
+      });
+    };
+
+    // Initial setup
+    setupListener();
+
+    // Reconnect every 2 mins to prevent filter timeout
+    setInterval(() => {
+      try {
+        this.usdcContract.removeAllListeners("Transfer");
+        this.setupProvider();
+        setupListener();
+        console.log("Reconnected event listener");
+      } catch (error) {
+        console.error("Error reconnecting:", error);
       }
-    });
+    }, 60 * 20 * 1000); // 2 mins in milliseconds
   }
 
   async triggerWebhook(chatId) {
-    const config = this.chatConfigs.get(chatId);
-
     try {
-      const response = await fetch(process.env.TELEGRAM_BOT_API, {
+      const command = "Funding is complete, looking for the best hotels...";
+      const params = undefined;
+      const url = "http://localhost:3000/api/telegram/funded";
+
+      const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
-          chat_id: chatId,
-          event: "payments_complete",
-          wallet_address: config.walletAddress,
-          member_count: config.memberCount,
-          amount_per_wallet: config.amountPerWallet,
+          chatId,
+          command,
+          params,
         }),
       });
-
+      const data = await response.json();
+      console.log({ data });
       if (!response.ok)
         throw new Error(`Webhook failed: ${response.statusText}`);
     } catch (error) {
@@ -178,7 +181,17 @@ class PaymentMonitor {
 const app = express();
 app.use(express.json());
 
-// const monitor = new PaymentMonitor();
+const client = createClient({
+  password: process.env.REDIS_PASSWORD,
+  socket: {
+    host: process.env.REDIS_HOST,
+    port: Number(process.env.REDIS_PORT ?? 13744),
+  },
+});
+
+client.on("error", (err) => console.log("Redis Client Error", err));
+
+const monitor = new PaymentMonitor();
 
 // API endpoints for Telegram bot
 app.post("/chat/config", async (req, res) => {
@@ -197,70 +210,61 @@ app.delete("/chat/:chatId", async (req, res) => {
   res.json({ success: true });
 });
 
-const triggerCommand = async (chatId, command, params) => {
-  const url = "http://localhost:3000/api/telegram/funded";
+// const triggerCommand = async (chatId, command, params) => {
+//   const url = "http://localhost:3000/api/telegram/funded";
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      chatId,
-      command,
-      params,
-    }),
-  });
+//   const response = await fetch(url, {
+//     method: "POST",
+//     headers: {
+//       "Content-Type": "application/json",
+//     },
+//     body: JSON.stringify({
+//       chatId,
+//       command,
+//       params,
+//     }),
+//   });
 
-  console.log({ response });
+//   console.log({ response });
 
-  return response.json();
-};
+//   return response.json();
+// };
 
-const getTelegramInfo = async () => {
-  const url = "http://localhost:3000/api/telegram/info";
+// const getTelegramInfo = async () => {
+//   const url = "http://localhost:3000/api/telegram/info";
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
+//   const response = await fetch(url, {
+//     method: "GET",
+//     headers: {
+//       "Content-Type": "application/json",
+//     },
+//   });
 
-  console.log({ response });
+//   console.log({ response });
 
-  return response.json();
-};
+//   return response.json();
+// };
 
-const getTelegramChats = async () => {
-  const url = "http://localhost:3000/api/telegram/chats";
+// const getTelegramChats = async () => {
+//   const url = "http://localhost:3000/api/telegram/chats";
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
+//   const response = await fetch(url, {
+//     method: "GET",
+//     headers: {
+//       "Content-Type": "application/json",
+//     },
+//   });
 
-  return response.json();
-};
+//   return response.json();
+// };
 
 // Start everything
+
 async function start() {
-  //   await monitor.connect();
-  //   monitor.start();
-  //   const client = await create();
-  //   const account = await client.login("ellie.farrisi@gmail.com");
-  //   console.log({ account });
-
-  //trigger the backend for telegram bot message
-  const telegramBotMessage = "funding is complete.";
-
-  await triggerCommand("-4555870136", telegramBotMessage);
-  //   await getTelegramInfo();
-  const chats = await getTelegramChats();
-  console.log({ chats });
-
+  console.log(`Starting listener 👂🏻`);
+  await client.connect();
+  await monitor.initialize();
+  monitor.start();
   const port = process.env.PORT || 3001;
   app.listen(port, () => console.log(`Server running on port ${port}`));
 }
