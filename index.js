@@ -1,8 +1,6 @@
 import dotenv from "dotenv";
-import { ethers, JsonRpcProvider } from "ethers";
+import { ethers } from "ethers";
 import express from "express";
-import { MongoClient } from "mongodb";
-import { create } from "@web3-storage/w3up-client";
 import { createClient } from "redis";
 
 dotenv.config();
@@ -73,9 +71,6 @@ class PaymentMonitor {
   }
 
   async initialize() {
-    // const value = await client.get("-4555870136");
-    // console.log({ value });
-
     const chatIds = await client.get("all-chat-ids");
     const chatIdsArray = JSON.parse(chatIds);
     console.log({ chatIdsArray });
