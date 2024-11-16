@@ -1,0 +1,21 @@
+{
+  "name": "book-me-listener",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@web3-storage/w3up-client": "^16.4.1",
+    "aws-sdk": "^2.1692.0",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.4",
+    "express": "^4.21.1",
+    "mongodb": "^6.10.0"
+  },
+  "type": "module"
+}
