@@ -147,9 +147,7 @@ class PaymentMonitor {
 
   async triggerWebhook(chatId) {
     try {
-      const command = "Funding is complete, looking for the best hotels...";
-      const params = undefined;
-      const url = "http://localhost:3000/api/telegram/funded";
+      const url = "https://book-me-app-tau.vercel.app/api/funded";
 
       const response = await fetch(url, {
         method: "POST",
@@ -158,8 +156,6 @@ class PaymentMonitor {
         },
         body: JSON.stringify({
           chatId,
-          command,
-          params,
         }),
       });
       const data = await response.json();
