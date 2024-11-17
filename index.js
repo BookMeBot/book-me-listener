@@ -79,13 +79,19 @@ class PaymentMonitor {
       const value = await client.get(chatId);
       const config = JSON.parse(value);
       console.log({ config });
-      const configData = {
-        walletAddress: config.walletAddress,
-        memberCount: config.requestData.numberOfGuests,
-        paymentsReceived: 0,
-        amountPerWallet: config.requestData.amountPerGuest,
-      };
-      this.chatConfigs.set(chatId, configData);
+
+      if (
+        config.requestData?.numberOfGuests &&
+        config.requestData.numberOfGuests > 0
+      ) {
+        const configData = {
+          walletAddress: config.walletAddress,
+          memberCount: config.requestData.numberOfGuests,
+          paymentsReceived: 0,
+          amountPerWallet: config.requestData.budgetPerPerson,
+        };
+        this.chatConfigs.set(chatId, configData);
+      }
     }
   }
 
@@ -253,9 +259,9 @@ app.delete("/chat/:chatId", async (req, res) => {
 
 async function start() {
   console.log(`Starting listener 👂🏻`);
-  //   await client.connect();
-  //   await monitor.initialize();
-  //   monitor.start();
+  await client.connect();
+  await monitor.initialize();
+  monitor.start();
   const port = process.env.PORT || 3001;
   app.listen(port, () => console.log(`Server running on port ${port}`));
 }
