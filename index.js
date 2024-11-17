@@ -253,9 +253,9 @@ app.delete("/chat/:chatId", async (req, res) => {
 
 async function start() {
   console.log(`Starting listener 👂🏻`);
-  await client.connect();
-  await monitor.initialize();
-  monitor.start();
+  //   await client.connect();
+  //   await monitor.initialize();
+  //   monitor.start();
   const port = process.env.PORT || 3001;
   app.listen(port, () => console.log(`Server running on port ${port}`));
 }
